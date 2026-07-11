@@ -5,29 +5,27 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=v2rayA
-PKG_VERSION:=1.5.6.2
+PKG_VERSION:=2.2.7.5
 PKG_RELEASE:=1
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/v2rayA/v2rayA/tar.gz/v$(PKG_VERSION)?
-PKG_HASH:=d949246aa9fe80aa9cb8fb4d80cb470f508bb44d4ac23e84e28e3b9abd30b67c
+PKG_HASH:=d0daccace51572d730fb710f7df190beed47d51ec1091d2fba38719b9417b385
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)/service
 
 PKG_LICENSE:=AGPL-3.0-only
 PKG_LICENSE_FILES:=LICENSE
 PKG_MAINTAINER:=Tianling Shen <cnsztl@immortalwrt.org>
 
-PKG_CONFIG_DEPENDS:= \
-	CONFIG_V2RAYA_COMPRESS_GOPROXY \
-	CONFIG_V2RAYA_COMPRESS_UPX \
-
-PKG_BUILD_DEPENDS:=golang/host node/host node-yarn/host
+PKG_BUILD_DEPENDS:=golang/host
 PKG_BUILD_PARALLEL:=1
 PKG_USE_MIPS16:=0
+PKG_BUILD_FLAGS:=no-mips16
 
 GO_PKG:=github.com/v2rayA/v2rayA
-GO_PKG_LDFLAGS:=-s -w
-GO_PKG_LDFLAGS_X:=$(GO_PKG)/conf.Version=$(PKG_VERSION)
+GO_PKG_LDFLAGS_X:= \
+	$(GO_PKG)/conf.Version=$(PKG_VERSION) \
+	$(GO_PKG)/core/iptables.TproxyNotSkipBr=true
 
 include $(INCLUDE_DIR)/package.mk
 include $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk
@@ -42,11 +40,7 @@ define Package/v2raya
   SUBMENU:=Web Servers/Proxies
   DEPENDS:=$(GO_ARCH_DEPENDS) \
     +ca-bundle \
-    +iptables-mod-conntrack-extra \
-    +iptables-mod-extra \
-    +iptables-mod-filter \
-    +iptables-mod-tproxy \
-    +kmod-ipt-nat6 \
+    +kmod-nft-tproxy \
     +xray-core
   URL:=https://v2raya.org
 endef
@@ -56,38 +50,26 @@ define Package/v2raya/description
   compatible with SS, SSR, Trojan(trojan-go), PingTunnel protocols.
 endef
 
-define Package/v2raya/config
-config V2RAYA_COMPRESS_GOPROXY
-	bool "Compiling with GOPROXY proxy"
-	default n
-
-config V2RAYA_COMPRESS_UPX
-	bool "Compress executable files with UPX"
-	depends on !mips64
-	default n
-endef
-
-ifneq ($(CONFIG_V2RAYA_COMPRESS_GOPROXY),)
-	export GO111MODULE=on
-	export GOPROXY=https://goproxy.bj.bcebos.com
-endif
-
 define Package/v2raya/conffiles
 /etc/v2raya/
 /etc/config/v2raya
 endef
 
-define Build/Compile
+WEB_FILE:=$(PKG_NAME)-web-$(PKG_VERSION).tar.gz
+define Download/v2raya-web
+	URL:=https://github.com/v2rayA/v2rayA/releases/download/v$(PKG_VERSION)/
+	URL_FILE:=web.tar.gz
+	FILE:=$(WEB_FILE)
+	HASH:=89bff9248a9cba8b7bda6e1202ac565dbca377319423868835235deddbfb182a
+endef
+
+define Build/Prepare
+	$(call Build/Prepare/Default)
+
 	( \
-		pushd $(PKG_BUILD_DIR)/../gui ; \
-		yarn ; \
-		OUTPUT_DIR=../service/server/router/web yarn build ; \
-		popd ; \
-		$(call GoPackage/Build/Compile) ; \
+		mkdir -p $(PKG_BUILD_DIR)/server/router/web ; \
+		gzip -dc $(DL_DIR)/$(WEB_FILE) | $(HOST_TAR) -C $(PKG_BUILD_DIR)/server/router/web $(TAR_OPTIONS) ; \
 	)
-ifneq ($(CONFIG_V2RAYA_COMPRESS_UPX),)
-	$(STAGING_DIR_HOST)/bin/upx --lzma --best $(GO_PKG_BUILD_BIN_DIR)/v2rayA
-endif
 endef
 
 define Package/v2raya/install
@@ -101,5 +83,6 @@ define Package/v2raya/install
 	$(INSTALL_BIN) $(CURDIR)/files/v2raya.init $(1)/etc/init.d/v2raya
 endef
 
+$(eval $(call Download,v2raya-web))
 $(eval $(call GoBinPackage,v2raya))
 $(eval $(call BuildPackage,v2raya))
